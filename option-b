@@ -1,0 +1,91 @@
+Step 3: Implement Dialog Methods
+Open dialog and manage dynamic fields
+javascript
+methods: {
+  openNewUserDialog() {
+    this.newUsersList = [{ name: '', email: '' }];
+    this.showNewUserDialog = true;
+  },
+
+  addMoreUserFields() {
+    this.newUsersList.push({ name: '', email: '' });
+  },
+
+  resetNewUserDialog() {
+    this.newUsersList = [{ name: '', email: '' }];
+    this.tempNewUsers = [];
+  },
+
+  async saveNewUsersAndAddToForm() {
+    // 1. Validate new users
+    const invalid = this.newUsersList.some(user => !user.name || !user.email);
+    if (invalid) {
+      this.$message.error('Please fill in all name and email fields');
+      return;
+    }
+
+    try {
+      // 2. Send new users to backend to create them
+      const response = await axios.post('/api/users/batch', this.newUsersList);
+      
+      // Assume response returns created users with their new IDs
+      const createdUsers = response.data; // [{ id: 101, name: 'John', email: 'john@...' }, ...]
+
+      // 3. Add newly created users to the existingUsers list (for future selections)
+      this.existingUsers.push(...createdUsers);
+
+      // 4. Extract just the IDs of new users
+      const newUserIds = createdUsers.map(user => user.id);
+
+      // 5. Merge with currently selected users (avoid duplicates)
+      this.enrollmentForm.selectedUsers = [
+        ...new Set([...this.enrollmentForm.selectedUsers, ...newUserIds])
+      ];
+
+      // 6. Close dialog and show success
+      this.showNewUserDialog = false;
+      this.$message.success(`${createdUsers.length} new user(s) added and selected!`);
+      
+    } catch (error) {
+      this.$message.error('Failed to create new users');
+    }
+  }
+}
+Step 4: Submit the Enrollment Form
+javascript
+async submitEnrollment() {
+  if (!this.enrollmentForm.courseId || this.enrollmentForm.selectedUsers.length === 0) {
+    this.$message.warning('Please select a course and at least one user');
+    return;
+  }
+
+  try {
+    // Send enrollment data to backend
+    await axios.post('/api/enrollments', {
+      courseId: this.enrollmentForm.courseId,
+      userIds: this.enrollmentForm.selectedUsers  // Contains both existing and new user IDs
+    });
+    
+    this.$message.success('Enrollment submitted successfully!');
+    // Reset form or redirect
+  } catch (error) {
+    this.$message.error('Enrollment failed');
+  }
+}
+Step 5: (Optional) Better UX – Separate Display Names for New Users
+If you want to show new users’ names in the select immediately after adding them (instead of just IDs), modify the select’s display logic:
+
+vue
+<el-select
+  v-model="enrollmentForm.selectedUsers"
+  multiple
+  filterable
+>
+  <el-option
+    v-for="user in existingUsers"
+    :key="user.id"
+    :label="user.name"
+    :value="user.id"
+  ></el-option>
+</el-select>
+Since you push new users into existingUsers, they’ll automatically appear as options.
