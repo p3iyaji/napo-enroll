@@ -1,0 +1,134 @@
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use App\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
+
+class UserController extends Controller
+{
+    /**
+     * Batch create multiple new users
+     * 
+     * @param Request $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function batchStore(Request $request)
+    {
+        // Validate the request structure
+        $validator = Validator::make($request->all(), [
+            '*.name' => 'required|string|max:255',
+            '*.email' => 'required|email|unique:users,email|max:255',
+            '*.password' => 'sometimes|string|min:8' // Optional: auto-generate if not provided
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $usersData = $request->all();
+        $createdUsers = [];
+        $errors = [];
+
+        // Use transaction to ensure data integrity
+        DB::beginTransaction();
+
+        try {
+            foreach ($usersData as $userData) {
+                // Auto-generate password if not provided
+                if (!isset($userData['password'])) {
+                    $userData['password'] = Hash::make('password123'); // Or random string
+                } else {
+                    $userData['password'] = Hash::make($userData['password']);
+                }
+
+                // Create the user
+                $user = User::create([
+                    'name' => $userData['name'],
+                    'email' => $userData['email'],
+                    'password' => $userData['password'],
+                ]);
+
+                // Add to created users array
+                $createdUsers[] = [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'created_at' => $user->created_at
+                ];
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => count($createdUsers) . ' user(s) created successfully',
+                'data' => $createdUsers
+            ], 201);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to create users',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+}
+
+
+async saveNewUsersAndAddToForm() {
+    const invalid = this.newUsersList.some(user => !user.name || !user.email);
+    if (invalid) {
+        this.$message.error('Please fill in all name and email fields');
+        return;
+    }
+
+    try {
+        // Send array of new users directly (no wrapping object)
+        const response = await axios.post('/api/users/batch', this.newUsersList);
+        
+        if (response.data.success) {
+            const createdUsers = response.data.data;
+            
+            // Add newly created users to existingUsers list
+            this.existingUsers.push(...createdUsers);
+            
+            // Extract IDs of new users
+            const newUserIds = createdUsers.map(user => user.id);
+            
+            // Merge with currently selected users
+            this.enrollmentForm.selectedUsers = [
+                ...new Set([...this.enrollmentForm.selectedUsers, ...newUserIds])
+            ];
+            
+            this.showNewUserDialog = false;
+            this.$message.success(response.data.message);
+            
+            // Show warnings about duplicates if any
+            if (response.data.duplicates && response.data.duplicates.length > 0) {
+                this.$message.warning(`${response.data.duplicates.length} email(s) already existed and were skipped`);
+            }
+        }
+        
+    } catch (error) {
+        if (error.response && error.response.data.errors) {
+            // Handle validation errors
+            const errors = error.response.data.errors;
+            this.$message.error('Validation failed. Please check the form.');
+            console.error(errors);
+        } else {
+            this.$message.error('Failed to create new users');
+        }
+    }
+}
